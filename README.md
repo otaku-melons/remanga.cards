@@ -1,6 +1,21 @@
-# remanga-cards
-**remanga-cards** – это расширение [Melon](https://github.com/otaku-melons/Melon) для парсера [remanga](https://github.com/Otaku-Melons/remanga), предоставляющее удобный инструментарий для парсинга карт персонажей.
-
-Спаршенные данные заносятся в локальный JSON-файл тайтла, поэтому перед получением карт тайтл уже должен быть собран обычным методом.
-
-Изображения карт сохраняются в соответствующую директорию ресурсов тайтла, в подкаталоге _cards_.
+# cards
+This extension can parse cards info and download its images. Info stored in descriptive file on `cards` key with following structure.
+```JSON
+{
+	"id": 123,
+	"rank": "S",
+	"images": [
+		{
+			"link": "https://remanga.org/media/card-item/image.webp",
+			// Resolution requested, but merging between sessions not supported for now.
+			"width": null,
+			"height": null
+		}
+	],
+	"author": {
+		"id": 123456,
+		"username": "SomeUser"
+	},
+	"person": "Person Name"
+}
+```
