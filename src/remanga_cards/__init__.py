@@ -1,23 +1,81 @@
 import os
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
-from melon.core.base.extensions import BaseExtension
+from melon.core.base.extension import BaseExtension, EmptySettingsModel
 from melon.core.base.structs.image import ImageData
+from melon.core.system_objects.manager.extensions.enums import ParsingStep
 
 from .modules.structs import AuthorData, CardData
 
 if TYPE_CHECKING:
 	from pathlib import Path
 
-	from ... import SourceOperator as SourceOperator
+	from remanga import SourceOperator  # noqa: F401
 
-class Extension(BaseExtension["SourceOperator"]):
-	"""Scan slides on images servers."""
+	from melon.core.base.formats.manga.controller import Manga
 
-	#==========================================================================================#
-	# >>>>> PRIVATE METHODS <<<<< #
-	#==========================================================================================#
+class Extension(BaseExtension["SourceOperator", EmptySettingsModel]):
+	"""Cards parser."""
+
+	def parse_cards(self, title: "Manga"):
+		"""Parse title cards."""
+
+		if not title.data.id:
+			self.portals.printer.debug("ID undefined. Cards parsing skipped.")
+			return
+
+		title.data.set_extra_data("cards", [], target_key = "persons")
+		cards_data: tuple[CardData, ...] = self.__get_cards_data(title.data.id)
+		self.portals.printer.emit(f"Cards parsed {len(cards_data)}.")
+		title.data.set_extra_data("cards", [card_data.to_dict() for card_data in cards_data])
+		self.__download_cards(title.used_filename, cards_data)
+		removed_images_count: int = self.__clear_unused_cards_images(title.used_filename, cards_data)
+
+		if removed_images_count:
+			self.portals.printer.emit(f"Unused cards images removed: {removed_images_count}.")
+
+	@override
+	def _register(self):
+		"""
+		Use `registrator` property to register extension methods execution.
+
+		Methods can accepts arguments injections:
+		- parser (`Parser`)
+		- title (`Manga` | `Ranobe` | `None`)
+		- data (`MangaData` | `RanobeData` | `None`)
+		"""
+
+		self.registrator.register(ParsingStep.AfterParsing, self.parse_cards)
+
+	def __clear_unused_cards_images(self, used_title_name: str, cards_data: Sequence[CardData]) -> int:
+		"""
+		Remove unused images in cards directory.
+
+		:param used_title_name: Used title name for cards images directory naming.
+		:type used_title_name: str
+		:param cards_data: Cards data sequence.
+		:type cards_data: Sequence[CardData]
+		:return: Removed images count.
+		:rtype: int
+		"""
+
+		used_images: list[str] = []
+
+		for card in cards_data:
+			for image in card.images:
+				used_images.append(image.filename)
+
+		title_cards_directory: Path = self.__get_cards_directory(used_title_name)
+		files: list[str] = os.listdir(title_cards_directory)
+		images_removed_count: int = 0
+
+		for file in files:
+			if file not in used_images:
+				os.unlink(title_cards_directory / file)
+				images_removed_count += 1
+
+		return images_removed_count
 
 	def __collect_cards_raw_data(self, title_id: int) -> list[dict]:
 		"""
@@ -51,6 +109,38 @@ class Extension(BaseExtension["SourceOperator"]):
 				break
 
 		return raw_data
+
+	def __download_cards(self, used_title_name: str, cards_data: Sequence[CardData]):
+		"""
+		Download cards images. Updates images resolutions in data containers.
+
+		:param used_title_name: Used title name for cards images directory naming.
+		:type used_title_name: str
+		:param cards_data: Cards data sequence.
+		:type cards_data: Sequence[CardData]
+		"""
+
+		title_cards_directory: Path = self.__get_cards_directory(used_title_name)
+
+		for card in cards_data:
+			for image in card.images:
+				future = self.portals.printer.templates.images.start_downloading(image.filename)
+				result = self.source_operator.download_image(image.link, title_cards_directory)
+				future.result(result)
+
+	def __get_cards_data(self, title_id: int) -> tuple[CardData, ...]:
+		"""
+		Request cards data.
+
+		:param title_id: Title ID.
+		:type title_id: int
+		:return: List of cards data.
+		:rtype: tuple[CardData, ...]
+		"""
+
+		raw_data: list[dict] = self.__collect_cards_raw_data(title_id)
+
+		return tuple(self.__parse_raw_card_data(data) for data in raw_data)
 
 	def __get_cards_directory(self, used_title_name: str) -> "Path":
 		"""
@@ -101,68 +191,3 @@ class Extension(BaseExtension["SourceOperator"]):
 			author = AuthorData(raw_data["author"]["id"], raw_data["author"]["username"]),
 			person = raw_data["character"]["name"],
 		)
-
-	#==========================================================================================#
-	# >>>>> PUBLIC METHODS <<<<< #
-	#==========================================================================================#
-
-	def clear_unused_cards_images(self, used_title_name: str, cards_data: Sequence[CardData]) -> int:
-		"""
-		Remove unused images in cards directory.
-
-		:param used_title_name: Used title name for cards images directory naming.
-		:type used_title_name: str
-		:param cards_data: Cards data sequence.
-		:type cards_data: Sequence[CardData]
-		:return: Removed images count.
-		:rtype: int
-		"""
-
-		used_images: list[str] = []
-
-		for card in cards_data:
-			for image in card.images:
-				used_images.append(image.filename)
-
-		title_cards_directory: Path = self.__get_cards_directory(used_title_name)
-		files: list[str] = os.listdir(title_cards_directory)
-		images_removed_count: int = 0
-
-		for file in files:
-			if file not in used_images:
-				os.unlink(title_cards_directory / file)
-				images_removed_count += 1
-
-		return images_removed_count
-
-	def download_cards(self, used_title_name: str, cards_data: Sequence[CardData]):
-		"""
-		Download cards images. Updates images resolutions in data containers.
-
-		:param used_title_name: Used title name for cards images directory naming.
-		:type used_title_name: str
-		:param cards_data: Cards data sequence.
-		:type cards_data: Sequence[CardData]
-		"""
-
-		title_cards_directory: Path = self.__get_cards_directory(used_title_name)
-
-		for card in cards_data:
-			for image in card.images:
-				future = self.portals.printer.templates.images.start_downloading(image.filename)
-				result = self.source_operator.download_image(image.link, title_cards_directory)
-				future.result(result)
-
-	def get_cards_data(self, title_id: int) -> tuple[CardData, ...]:
-		"""
-		Request cards data.
-
-		:param title_id: Title ID.
-		:type title_id: int
-		:return: List of cards data.
-		:rtype: tuple[CardData, ...]
-		"""
-
-		raw_data: list[dict] = self.__collect_cards_raw_data(title_id)
-
-		return tuple(self.__parse_raw_card_data(data) for data in raw_data)

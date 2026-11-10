@@ -1,0 +1,20 @@
+[build-system]
+requires = ["uv-build>=0.13,<0.14"]
+build-backend = "uv_build"
+
+[project]
+name = "remanga_cards"
+version = "2.0.0"
+description = "Extension for parsing ReManga cards."
+readme = "README.md"
+authors = [
+	{ name = "dub1401", email = "vlad.milosta@outlook.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+	"melon>=1.0.0rc8",
+	"remanga>=2.8"
+]
+
+[project.entry-points."melon.parsers.remanga.extensions"]
+remanga_cards = "remanga_cards"

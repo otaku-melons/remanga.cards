@@ -1,6 +1,6 @@
 # cards
 This extension can parse cards info and download its images. Info stored in descriptive file on `cards` key with following structure.
-```JSON
+```JSONC
 {
 	"id": 123,
 	"rank": "S",
